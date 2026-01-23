@@ -1,0 +1,6 @@
+# Teleprompter Studio Rules
+- Мы используем чистый Vanilla JavaScript и Electron.
+- Никаких тяжелых фреймворков (React/Vue).
+- Приоритет на производительность (GPU acceleration, translate3d).
+- Используй BroadcastChannel API для синхронизации окон.
+- Стиль кода: краткость, отсутствие лишних зависимостей.

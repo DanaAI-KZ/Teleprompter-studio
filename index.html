@@ -81,6 +81,28 @@
     .copyright { font-size: 9px; color: var(--warning); text-transform: uppercase; letter-spacing: 1.2px; border-top: 1px solid #333; padding-top: 20px; width: 100%; font-weight: 700; text-align: center; margin-top: auto; }
     .close-btn { background: #2a2a2c; color: #fff; width: 100%; padding: 20px; border: none; border-top: 1px solid #333; font-weight: 900; cursor: pointer; text-transform: uppercase; font-size: 13px; transition: 0.2s; flex-shrink: 0; }
     .close-btn:hover { color: var(--danger); background: #333; }
+
+    .reading-marker {
+        position: fixed;
+        top: 50%;
+        left: 0;
+        width: 48px;
+        height: 0;
+        border-top: 2px solid var(--danger);
+        z-index: 900;
+        pointer-events: none;
+        transform: translateY(-50%);
+    }
+
+    .reading-marker::before {
+        content: "";
+        position: absolute;
+        right: 0;
+        top: -6px;
+        border-top: 6px solid transparent;
+        border-bottom: 6px solid transparent;
+        border-left: 10px solid var(--danger);
+    }
 </style>
 </head>
 <body>
@@ -101,9 +123,12 @@
         <button id="startBtn">СТАРТ</button>
         <button id="mirrorBtn">ЗЕРКАЛО</button>
         <button id="openWindowBtn">ОКНО ДИКТОРА</button>
+        <button id="markerBtn">МАРКЕР</button>
         <button id="aboutBtn">INFO</button>
     </div>
 </div>
+
+<div id="readingMarker" class="reading-marker" aria-hidden="true"></div>
 
 <div id="aboutModal" class="modal-overlay">
     <div class="modal-card">
@@ -158,6 +183,8 @@ const widthSlider = document.getElementById('widthSlider');
 const startBtn = document.getElementById('startBtn');
 const openWindowBtn = document.getElementById('openWindowBtn');
 const mirrorBtn = document.getElementById('mirrorBtn');
+const markerBtn = document.getElementById('markerBtn');
+const readingMarker = document.getElementById('readingMarker');
 
 let prompterWindow = null;
 let lastTime = performance.now();
@@ -177,7 +204,8 @@ let state = {
     winX: saved.winX || 100,
     winY: saved.winY || 100,
     winW: saved.winW || 800,
-    winH: saved.winH || 600
+    winH: saved.winH || 600,
+    markerEnabled: saved.markerEnabled || false
 };
 
 function sync() { channel.postMessage({ type: 'SYNC', data: state }); }
@@ -200,6 +228,10 @@ function updateUI() {
     if (state.mirror && isPrompter) transform += ` scaleX(-1)`;
     textDisplay.style.transform = transform;
 
+    if (readingMarker) {
+        readingMarker.style.display = state.markerEnabled ? 'block' : 'none';
+    }
+
     if (!isPrompter) {
         document.getElementById('speedVal').innerText = state.speed;
         document.getElementById('fontVal').innerText = state.fontSize;
@@ -207,6 +239,7 @@ function updateUI() {
         startBtn.innerText = state.scrolling ? "ПАУЗА" : "СТАРТ";
         startBtn.classList.toggle('active', state.scrolling);
         mirrorBtn.classList.toggle('active', state.mirror);
+        if (markerBtn) markerBtn.classList.toggle('active', state.markerEnabled);
         
         inputArea.disabled = state.scrolling;
         fontSlider.disabled = state.scrolling;
@@ -289,6 +322,13 @@ if (!isPrompter) {
         state.mirror = !state.mirror; 
         sync(); updateUI(); 
         clearFocus(); 
+    };
+    
+    markerBtn.onclick = () => {
+        state.markerEnabled = !state.markerEnabled;
+        sync();
+        updateUI();
+        clearFocus();
     };
     
     openWindowBtn.onclick = () => {
