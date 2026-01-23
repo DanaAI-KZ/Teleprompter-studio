@@ -1,0 +1,30 @@
+{
+  "name": "teleprompter-studio",
+  "version": "1.0.0",
+  "description": "Professional Teleprompter by Dana Systems",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "build": "electron-builder --win portable"
+  },
+  "build": {
+    "appId": "com.danasystems.prompter",
+    "productName": "Teleprompter Studio",
+    "files": [
+      "**/*",
+      "logo.png"
+    ],
+    "win": {
+      "target": "portable",
+      "icon": "logo.png",
+      "artifactName": "${productName}.${ext}"
+    },
+    "directories": {
+      "output": "dist"
+    }
+  },
+  "devDependencies": {
+    "electron": "^40.0.0",
+    "electron-builder": "^24.13.3"
+  }
+}

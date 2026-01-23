@@ -1,0 +1,342 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<title>Teleprompter Studio</title>
+<link rel="icon" type="image/png" href="logo.png">
+<style>
+    :root { 
+        --bg-panel: #1a1a1c; 
+        --accent: #007bff; 
+        --success: #28a745; 
+        --danger: #dc3545; 
+        --warning: #ff9800; 
+        --stat-color: #00ff88; 
+        --text-muted: #888; 
+    }
+    
+    body { margin:0; font-family:'Inter',-apple-system,sans-serif; background:black; color:#e0e0e0; overflow:hidden; }
+    
+    #controls { 
+        position:fixed; top:0; width:100%; background: var(--bg-panel); 
+        padding:12px 20px; display:flex; gap:20px; align-items:center; 
+        z-index:1000; border-bottom:1px solid #333; box-sizing:border-box; 
+    }
+    
+    .input-section { flex: 2; }
+    textarea { width:100%; height:60px; background:#252527; color:#fff; border:1px solid #444; padding:10px; font-size:14px; resize:none; border-radius:8px; outline:none; transition: 0.3s; }
+    textarea:disabled { opacity:0.3; background:#111; border-color: #222; }
+
+    .stat-display { display:flex; gap:15px; background:#000; padding:8px 15px; border-radius:8px; border:1px solid #333; min-width:250px; }
+    .stat-group { display:flex; flex-direction:column; }
+    .stat-label { color:var(--text-muted); font-size:9px; text-transform:uppercase; font-weight:bold; }
+    .stat-item { font-size:16px; color:var(--stat-color); font-family:monospace; font-weight:bold; }
+
+    .sliders-box { display:flex; flex-direction:column; gap:5px; min-width:160px; }
+    .slider-row { display:flex; align-items:center; gap:8px; }
+    .slider-row label { font-size:9px; color:var(--text-muted); width:45px; text-transform:uppercase; }
+    input[type=range] { flex:1; accent-color: var(--accent); cursor:pointer; }
+    input[type=range]:disabled { opacity: 0.2; cursor: default; }
+
+    .actions { display:flex; gap:8px; }
+    button { padding:10px 14px; cursor:pointer; background:#333; color:white; border:none; border-radius:6px; font-size:10px; font-weight:700; text-transform:uppercase; transition:0.2s; outline:none; }
+    button:disabled { opacity: 0.3 !important; cursor: default !important; box-shadow: none !important; }
+    
+    #startBtn { background: var(--success); min-width:90px; }
+    #startBtn.active { background: var(--danger); }
+    #mirrorBtn.active { background: var(--warning) !important; color:#000; }
+    #openWindowBtn.active { background: var(--accent) !important; box-shadow: 0 0 15px rgba(0,123,255,0.4); }
+
+    .view-container { position:relative; width:100%; height:100vh; display:flex; justify-content:center; overflow:hidden; }
+    #text-display { 
+        position:absolute; text-align:center; line-height:1.5; 
+        white-space:pre-wrap; word-wrap:break-word; top:0; 
+        will-change: transform; transform: translate3d(0,0,0);
+        backface-visibility:hidden; text-rendering: optimizeLegibility; -webkit-font-smoothing: antialiased;
+    }
+
+    .modal-overlay { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0, 0, 0, 0.85); backdrop-filter: blur(12px); z-index: 2000; justify-content: center; align-items: center; }
+    .modal-card { background: #1e1e20; width: 480px; height: 580px; border-radius: 28px; border: 1px solid #333; overflow: hidden; display: flex; flex-direction: column; box-shadow: 0 30px 60px rgba(0,0,0,0.6); }
+    
+    .modal-tabs { display: flex; background: #252527; flex-shrink: 0; }
+    .tab-btn { flex: 1; padding: 16px; border: none; background: transparent; color: #666; font-weight: bold; cursor: pointer; font-size: 11px; text-transform: uppercase; letter-spacing: 1px; transition: 0.3s; }
+    .tab-btn.active { color: var(--accent); background: #1e1e20; border-bottom: 2px solid var(--accent); }
+    
+    .tab-content { padding: 35px 40px; display: none; flex-direction: column; align-items: center; flex-grow: 1; overflow: hidden; box-sizing: border-box; }
+    .tab-content.active { display: flex; }
+
+    .program-title { font-size: 24px; font-weight: 900; color: #fff; margin-bottom: 15px; text-transform: uppercase; letter-spacing: 1px; }
+    .program-desc { font-size: 15px; line-height: 1.5; color: #ddd; margin-bottom: 25px; text-align: center; }
+    
+    .help-grid { display: flex; flex-direction: column; gap: 10px; width: 100%; margin-bottom: 25px; }
+    .help-row { display: flex; justify-content: space-between; font-size: 14px; border-bottom: 1px solid #2a2a2c; padding-bottom: 8px; align-items: center; }
+    .key-cap { background: #333; padding: 4px 12px; border-radius: 6px; color: var(--stat-color); font-family: monospace; font-weight: bold; border: 1px solid #444; font-size: 13px; }
+
+    .logo-img { width: 180px; height: 180px; margin-bottom: 15px; filter: drop-shadow(0 0 25px rgba(0,123,255,0.25)); object-fit: contain; }
+    .author-name { font-size: 22px; font-weight: 600; color: #fff; margin-bottom: 4px; }
+    .ceo-label { font-size: 14px; color: var(--accent); font-weight: 700; margin-bottom: 25px; }
+    .connect-link { color: #ccc; text-decoration: none; font-size: 14px; transition: 0.3s; font-weight: 500; display: block; margin-bottom: 8px; }
+    .connect-link:hover { color: var(--accent); }
+
+    .copyright { font-size: 9px; color: var(--warning); text-transform: uppercase; letter-spacing: 1.2px; border-top: 1px solid #333; padding-top: 20px; width: 100%; font-weight: 700; text-align: center; margin-top: auto; }
+    .close-btn { background: #2a2a2c; color: #fff; width: 100%; padding: 20px; border: none; border-top: 1px solid #333; font-weight: 900; cursor: pointer; text-transform: uppercase; font-size: 13px; transition: 0.2s; flex-shrink: 0; }
+    .close-btn:hover { color: var(--danger); background: #333; }
+</style>
+</head>
+<body>
+
+<div id="controls">
+    <div class="input-section"><textarea id="input" placeholder="Введите ваш текст..."></textarea></div>
+    <div class="stat-display">
+        <div class="stat-group"><span class="stat-label">Скорость</span><span id="speedVal" class="stat-item">5</span></div>
+        <div class="stat-group"><span class="stat-label">Шрифт</span><span id="fontVal" class="stat-item">60</span></div>
+        <div class="stat-group"><span class="stat-label">Ширина</span><span id="widthVal" class="stat-item">80%</span></div>
+    </div>
+    <div class="sliders-box">
+        <div class="slider-row"><label>Скорость</label><input type="range" id="speedSlider" min="0" max="40" value="5"></div>
+        <div class="slider-row"><label>Шрифт</label><input type="range" id="fontSlider" min="20" max="200" value="60"></div>
+        <div class="slider-row"><label>Ширина</label><input type="range" id="widthSlider" min="20" max="100" value="80"></div>
+    </div>
+    <div class="actions">
+        <button id="startBtn">СТАРТ</button>
+        <button id="mirrorBtn">ЗЕРКАЛО</button>
+        <button id="openWindowBtn">ОКНО ДИКТОРА</button>
+        <button id="aboutBtn">INFO</button>
+    </div>
+</div>
+
+<div id="aboutModal" class="modal-overlay">
+    <div class="modal-card">
+        <div class="modal-tabs">
+            <button class="tab-btn active" onclick="showTab('tab-help', this)">О программе</button>
+            <button class="tab-btn" onclick="showTab('tab-author', this)">Об авторе</button>
+        </div>
+        
+        <div id="tab-help" class="tab-content active">
+            <div class="program-title">Teleprompter Studio</div>
+            <div class="program-desc">
+                Современный веб-суфлер с поддержкой двухэкранного режима. 
+                Зеркальный режим гарантирует совместимость с профессиональным оборудованием.
+            </div>
+            <div class="help-grid">
+                <div class="help-row"><span>Старт / Пауза</span><span class="key-cap">Space</span></div>
+                <div class="help-row"><span>Скорость</span><span class="key-cap">↑ / ↓</span></div>
+                <div class="help-row"><span>Шрифт / Ширина (пауза)</span><span class="key-cap">Стрелки</span></div>
+                <div class="help-row"><span>Прокрутка вручную (пауза)</span><span class="key-cap">Wheel</span></div>
+                <div class="help-row"><span>В начало</span><span class="key-cap">Home</span></div>
+            </div>
+            <div class="copyright">© 2026 DANA SYSTEMS. SYSTEMS THAT THINK.</div>
+        </div>
+
+        <div id="tab-author" class="tab-content">
+            <img src="logo.png" class="logo-img" alt="Logo">
+            <div style="font-size: 11px; color: #888; text-transform: uppercase; letter-spacing: 2px; margin-bottom: 5px;">Created by</div>
+            <div class="author-name">Nurlan Akkainanov</div>
+            <div class="ceo-label">CEO, Dana Systems</div>
+            <div class="connect-section" style="text-align: center;">
+                <a href="https://t.me/NurlanDS" target="_blank" class="connect-link">Telegram: @NurlanDS</a>
+                <a href="https://www.dana-systems.com" target="_blank" class="connect-link">Web: www.dana-systems.com</a>
+            </div>
+            <div class="copyright">© 2026 DANA SYSTEMS. SYSTEMS THAT THINK.</div>
+        </div>
+        <button class="close-btn" id="closeAboutBtn">ЗАКРЫТЬ</button>
+    </div>
+</div>
+
+<div class="view-container"><div id="text-display"></div></div>
+
+<script>
+const channel = new BroadcastChannel('tele_v24_broadcast');
+const params = new URLSearchParams(window.location.search);
+const isPrompter = params.get('mode') === 'prompter';
+
+const textDisplay = document.getElementById('text-display');
+const inputArea = document.getElementById('input');
+const speedSlider = document.getElementById('speedSlider');
+const fontSlider = document.getElementById('fontSlider');
+const widthSlider = document.getElementById('widthSlider');
+const startBtn = document.getElementById('startBtn');
+const openWindowBtn = document.getElementById('openWindowBtn');
+const mirrorBtn = document.getElementById('mirrorBtn');
+
+let prompterWindow = null;
+let lastTime = performance.now();
+let smoothSpeed = 0; 
+let needRecalc = true;
+const cache = { text: '', fontSize: 0, width: 0 };
+
+const saved = JSON.parse(localStorage.getItem('tele_v24_settings')) || {};
+let state = {
+    text: saved.text || "Введите ваш текст здесь...",
+    speed: saved.speed || 5,
+    fontSize: saved.fontSize || 60,
+    width: saved.width || 80,
+    progress: 0,
+    scrolling: false,
+    mirror: saved.mirror || false,
+    winX: saved.winX || 100,
+    winY: saved.winY || 100,
+    winW: saved.winW || 800,
+    winH: saved.winH || 600
+};
+
+function sync() { channel.postMessage({ type: 'SYNC', data: state }); }
+function clearFocus() { if (document.activeElement) document.activeElement.blur(); }
+
+channel.onmessage = (e) => {
+    if (e.data.type === 'SYNC') { state = e.data.data; updateUI(); }
+    if (e.data.type === 'REQ' && !isPrompter) sync();
+};
+
+function updateUI() {
+    if(cache.text !== state.text) { textDisplay.innerText = state.text; cache.text = state.text; needRecalc = true; }
+    if(cache.fontSize !== state.fontSize) { textDisplay.style.fontSize = state.fontSize + 'px'; cache.fontSize = state.fontSize; needRecalc = true; }
+    if(cache.width !== state.width) { textDisplay.style.width = state.width + '%'; cache.width = state.width; needRecalc = true; }
+
+    const distance = textDisplay.scrollHeight + window.innerHeight;
+    const currentY = window.innerHeight - (state.progress * distance);
+    
+    let transform = `translate3d(0, ${currentY}px, 0)`;
+    if (state.mirror && isPrompter) transform += ` scaleX(-1)`;
+    textDisplay.style.transform = transform;
+
+    if (!isPrompter) {
+        document.getElementById('speedVal').innerText = state.speed;
+        document.getElementById('fontVal').innerText = state.fontSize;
+        document.getElementById('widthVal').innerText = state.width + '%';
+        startBtn.innerText = state.scrolling ? "ПАУЗА" : "СТАРТ";
+        startBtn.classList.toggle('active', state.scrolling);
+        mirrorBtn.classList.toggle('active', state.mirror);
+        
+        inputArea.disabled = state.scrolling;
+        fontSlider.disabled = state.scrolling;
+        widthSlider.disabled = state.scrolling;
+        mirrorBtn.disabled = state.scrolling;
+        openWindowBtn.disabled = state.scrolling; 
+        
+        openWindowBtn.classList.toggle('active', prompterWindow && !prompterWindow.closed);
+        
+        localStorage.setItem('tele_v24_settings', JSON.stringify(state));
+    }
+}
+
+function animate(currentTime) {
+    const deltaTime = currentTime - lastTime;
+    lastTime = currentTime;
+
+    if (state.scrolling) {
+        smoothSpeed += (state.speed - smoothSpeed) * 0.08;
+        state.progress += (smoothSpeed * deltaTime) * 0.000008; 
+        
+        if (state.progress > 1) state.progress = 0;
+        sync(); updateUI();
+    } else {
+        smoothSpeed += (0 - smoothSpeed) * 0.08;
+    }
+    requestAnimationFrame(animate);
+}
+
+window.onunload = () => {
+    if (prompterWindow) prompterWindow.close();
+};
+
+if (!isPrompter) {
+    inputArea.value = state.text;
+    speedSlider.value = state.speed;
+    fontSlider.value = state.fontSize;
+    widthSlider.value = state.width;
+    
+    document.getElementById('aboutBtn').onclick = () => { document.getElementById('aboutModal').style.display = 'flex'; clearFocus(); }
+    document.getElementById('closeAboutBtn').onclick = () => { document.getElementById('aboutModal').style.display = 'none'; clearFocus(); }
+
+    inputArea.oninput = () => { state.text = inputArea.value; sync(); updateUI(); };
+    [speedSlider, fontSlider, widthSlider].forEach(sl => {
+        sl.oninput = () => {
+            if(sl.disabled) return;
+            state.speed = parseInt(speedSlider.value); 
+            state.fontSize = parseInt(fontSlider.value); 
+            state.width = parseInt(widthSlider.value); 
+            sync(); updateUI(); 
+        };
+    });
+
+    document.addEventListener('keydown', (e) => {
+        if (document.activeElement === inputArea) return;
+        if (e.code === 'Space') { e.preventDefault(); startBtn.click(); }
+        if (e.code === 'ArrowUp') { state.speed = Math.min(state.speed + 1, 40); speedSlider.value = state.speed; }
+        if (e.code === 'ArrowDown') { state.speed = Math.max(state.speed - 1, 0); speedSlider.value = state.speed; }
+        if (e.code === 'Home') { e.preventDefault(); state.progress = 0; }
+
+        if (!state.scrolling) {
+            if (e.code === 'ArrowRight') { state.fontSize = Math.min(state.fontSize + 2, 200); fontSlider.value = state.fontSize; }
+            if (e.code === 'ArrowLeft') { state.fontSize = Math.max(state.fontSize - 2, 20); fontSlider.value = state.fontSize; }
+            if (e.code === 'PageUp') { e.preventDefault(); state.width = Math.min(state.width + 5, 100); widthSlider.value = state.width; }
+            if (e.code === 'PageDown') { e.preventDefault(); state.width = Math.max(state.width - 5, 20); widthSlider.value = state.width; }
+        }
+        sync(); updateUI();
+    });
+
+    window.addEventListener('wheel', (e) => {
+        if (state.scrolling) return;
+        state.progress = Math.max(0, Math.min(1, state.progress + e.deltaY * 0.0005));
+        sync(); updateUI();
+    }, { passive: true });
+
+    startBtn.onclick = () => { state.scrolling = !state.scrolling; sync(); updateUI(); clearFocus(); };
+    
+    mirrorBtn.onclick = () => { 
+        if (state.scrolling) return; 
+        state.mirror = !state.mirror; 
+        sync(); updateUI(); 
+        clearFocus(); 
+    };
+    
+    openWindowBtn.onclick = () => {
+        if (state.scrolling) return;
+        if (prompterWindow && !prompterWindow.closed) { 
+            prompterWindow.close(); 
+            prompterWindow = null; 
+        } else { 
+            const features = `width=${state.winW},height=${state.winH},left=${state.winX},top=${state.winY},menubar=no,toolbar=no,location=no,status=no`;
+            prompterWindow = window.open(window.location.href.split('?')[0] + '?mode=prompter', 'Prompter', features); 
+            
+            const saveGeom = () => {
+                if (!prompterWindow || prompterWindow.closed) return;
+                state.winX = prompterWindow.screenX;
+                state.winY = prompterWindow.screenY;
+                state.winW = prompterWindow.outerWidth;
+                state.winH = prompterWindow.outerHeight;
+                localStorage.setItem('tele_v24_settings', JSON.stringify(state));
+            };
+
+            prompterWindow.addEventListener('beforeunload', saveGeom);
+            prompterWindow.addEventListener('resize', saveGeom);
+
+            const saveInterval = setInterval(() => {
+                if (!prompterWindow || prompterWindow.closed) {
+                    clearInterval(saveInterval);
+                    updateUI();
+                    return;
+                }
+                saveGeom();
+            }, 500);
+        }
+        updateUI(); clearFocus();
+    };
+} else {
+    document.getElementById('controls').style.display = 'none';
+    channel.postMessage({ type: 'REQ' });
+}
+
+function showTab(tabId, btn) {
+    document.querySelectorAll('.tab-content').forEach(t => t.classList.remove('active'));
+    document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+    document.getElementById(tabId).classList.add('active');
+    btn.classList.add('active');
+}
+
+updateUI();
+requestAnimationFrame(animate);
+</script>
+</body>
+</html>
