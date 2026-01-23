@@ -1,141 +1,53 @@
-# 🎬 Teleprompter Studio
+# 🎬 Teleprompter Studio v1.0.4
 
-**Teleprompter Studio** is a professional teleprompter application designed for video production, broadcasting and live streaming.
-
-Built as a **web-based application with Electron packaging**, it provides a clean dual-window workflow, smooth scrolling and full compatibility with physical teleprompter mirrors.
+**Teleprompter Studio** is a professional teleprompter application designed for video production, broadcasting, and live streaming. Built as a high-performance web app with **Electron (NSIS Installer)** packaging.
 
 ---
 
 ## ✨ Key Features
 
-* 🖥 **Dual-window mode**
+### 🖥 Dual-window mode
+* **Main Control Window:** Full control over settings, speed, and text.
+* **Prompter Mode Window:** A clean interface without distracting elements for the speaker.
 
-  * Control window
-  * Dedicated Prompter window
+### 🔄 Mirror mode
+* Special mode for working with physical teleprompter glass mirrors (beam splitters).
+* Active only in the prompter window, without affecting the operator.
 
-* 🔄 **Mirror mode**
+### 📍 Reading Marker (New)
+* A visual guide line to help the speaker track the current line smoothly.
+* Can be toggled on/off via the main control window.
 
-  * Designed for real teleprompter glass
-  * Active only in Prompter Mode
+### 🎚 Ultra-smooth scrolling
+* **GPU Acceleration:** Uses `translate3d` for maximum fluidity.
+* **Inertia Smoothing:** Easing algorithms for comfortable reading.
 
-* 🎚 **Smooth scrolling**
+---
 
-  * GPU acceleration (`translate3d`)
-  * Inertia-based speed smoothing
-
-* ⌨️ **Keyboard control**
-
-  * `Space` — Start / Pause
-  * `↑ / ↓` — Scroll speed
-  * `← / →` — Font size *(paused only)*
-  * `PageUp / PageDown` — Text width *(paused only)*
-  * `Mouse Wheel` — Manual scroll *(paused only)*
-  * `Home` — Jump to start
-
-* 🔗 **Window synchronization**
-
-  * Powered by `BroadcastChannel`
-  * No servers or network dependencies
-
-* 💾 **Auto-save**
-
-  * Text content
-  * Speed and layout
-  * Prompter window position and size
-  * Mirror state
+## ⌨️ Keyboard Control
+| Key | Action |
+| :--- | :--- |
+| **Space** | Start / Pause |
+| **↑ / ↓** | Adjust scroll speed |
+| **← / →** | Font size (while paused) |
+| **PageUp / PageDown** | Text width (while paused) |
+| **Home** | Instant jump to the start |
+| **Wheel** | Manual scroll (while paused) |
 
 ---
 
 ## 🧠 Technology Stack
-
-* HTML5
-* CSS3 (GPU acceleration, `will-change`)
-* Vanilla JavaScript
-* `BroadcastChannel API`
-* `requestAnimationFrame`
-* `localStorage`
-* Electron (desktop packaging)
-
----
-
-## 📁 Project Structure
-
-```
-teleprompter-studio/
- ├── index.html
- ├── logo.png
- ├── package.json
- └── README.md
-```
-
----
-
-## 🖥 Prompter Mode
-
-The prompter window can be opened:
-
-* via **OPEN PROMPTER WINDOW** button
-* or directly using:
-
-```
-index.html?mode=prompter
-```
-
-In this mode:
-
-* UI controls are hidden
-* text is fully synchronized
-* mirror mode is supported
-* window geometry is preserved
-
----
-
-## ⚠️ Electron Build Notes
-
-All assets must use **relative paths**.
-
-Correct usage:
-
-```html
-<link rel="icon" href="logo.png">
-<img src="logo.png">
-```
-
-`logo.png` must be placed next to `index.html` and included in the Electron build.
-
----
-
-## 🖥 Running & Building
-
-```bash
-npm install
-npm start
-npm run build
-```
-
-The Windows portable executable will be generated in:
-
-```
-/dist
-```
+* **Engine:** Vanilla JavaScript / Electron 40.0.0.
+* **Build:** GitHub Actions (CI/CD) / NSIS Installer.
+* **Optimization:** Distribution size reduced to **~92 MB**.
 
 ---
 
 ## 👤 Author
-
-**Nurlan Akkainanov**
-CEO, **DANA SYSTEMS**
-
----
+**Nurlan Akkainanov** CEO, **DANA SYSTEMS** Telegram: [@NurlanDS](https://t.me/NurlanDS)  
+Website: [www.dana-systems.com](http://www.dana-systems.com)
 
 ## 🏢 Company
+**DANA SYSTEMS** — *Systems That Think.* Software Development • Crypto Technologies • Infrastructure Solutions.
 
-**DANA SYSTEMS**
-*Systems That Think.*
-
----
-
-## 📄 License
-
-© 2026 DANA SYSTEMS
-All rights reserved.
+© 2026 DANA SYSTEMS. All rights reserved.
