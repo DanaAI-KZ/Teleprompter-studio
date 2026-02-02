@@ -75,11 +75,8 @@
 
     /* PERFORMANCE MODE (включается только тумблером) */
     body.perf #text-display {
-        /* на слабых GPU помогает композитору */
         contain: layout paint;
-        /* will-change на интеграшках иногда ухудшает — отключаем */
         will-change: auto;
-        /* можно чуть упростить сглаживание */
         -webkit-font-smoothing: auto;
     }
 
@@ -235,7 +232,7 @@ const perf = {
   targetFps: 60,
   frameMs: 1000 / 60,
   lastFrame: 0,
-  progressIntervalMs: 33   // 30fps by default for IPC
+  progressIntervalMs: 16   // FIX: default for QUALITY should be smooth (60fps)
 };
 
 // ---- Save (debounced) ----
@@ -307,23 +304,21 @@ function perfLabel(mode) {
 }
 
 function applyPerfMode(shouldSync = true) {
-  // clamp
   state.perfMode = (state.perfMode === 0 || state.perfMode === 1 || state.perfMode === 2) ? state.perfMode : 0;
-
   perf.mode = state.perfMode;
 
-  // Mode tuning
-  if (perf.mode === 0) { // Quality
+  // FIX: QUALITY and BALANCED must be visually smooth (more frequent PROGRESS)
+  if (perf.mode === 0) { // QUALITY
     perf.targetFps = 60;
-    perf.progressIntervalMs = 33; // ~30fps IPC
+    perf.progressIntervalMs = 16;  // ~60fps IPC (smooth)
     document.body.classList.remove('perf');
-  } else if (perf.mode === 1) { // Balanced
+  } else if (perf.mode === 1) { // BALANCED
     perf.targetFps = 45;
-    perf.progressIntervalMs = 33; // keep IPC ~30fps
+    perf.progressIntervalMs = 22;  // ~45fps IPC
     document.body.classList.remove('perf');
-  } else { // Performance
+  } else { // PERFORMANCE
     perf.targetFps = 30;
-    perf.progressIntervalMs = 50; // ~20fps IPC to reduce overhead in dual-screen
+    perf.progressIntervalMs = 50;  // ~20fps IPC
     document.body.classList.add('perf');
   }
 
@@ -337,7 +332,6 @@ function applyPerfMode(shouldSync = true) {
                     perf.mode === 1 ? 'Компромисс' : 'Максимальная производительность';
   }
 
-  // Sync to prompter so it also applies mode (perf CSS affects only local window, but mode affects IPC/FPS logic)
   if (shouldSync) {
     syncFull();
     saveStateDebounced();
@@ -345,7 +339,6 @@ function applyPerfMode(shouldSync = true) {
 }
 
 // ---- UI render ----
-// fastOnly: не трогаем контролы — только позицию и маркер
 function updateUI(fastOnly = false) {
     if (cache.text !== state.text) { textDisplay.innerText = state.text; cache.text = state.text; needRecalc = true; }
     if (cache.fontSize !== state.fontSize) { textDisplay.style.fontSize = state.fontSize + 'px'; cache.fontSize = state.fontSize; needRecalc = true; }
@@ -360,7 +353,6 @@ function updateUI(fastOnly = false) {
         readingMarker.style.display = state.markerEnabled ? 'block' : 'none';
     }
 
-    // зеркалим только в prompter-окне
     if (isPrompter) {
         mirrorWrap.classList.toggle('mirror', !!state.mirror);
     }
@@ -398,12 +390,15 @@ function maybeSendProgress() {
 
 // ---- Animation ----
 function animate(currentTime) {
-    // FPS limiter (mode dependent)
-    if (currentTime - perf.lastFrame < perf.frameMs) {
-        requestAnimationFrame(animate);
-        return;
+    // FIX: FPS limiter must apply ONLY in PERF mode (mode 2),
+    // otherwise powerful PCs will see step-like motion.
+    if (perf.mode === 2) {
+        if (currentTime - perf.lastFrame < perf.frameMs) {
+            requestAnimationFrame(animate);
+            return;
+        }
+        perf.lastFrame = currentTime;
     }
-    perf.lastFrame = currentTime;
 
     const deltaTime = currentTime - lastTime;
     lastTime = currentTime;
@@ -413,10 +408,7 @@ function animate(currentTime) {
         state.progress += (smoothSpeed * deltaTime) * 0.000008;
         if (state.progress > 1) state.progress = 0;
 
-        // локально рисуем каждый кадр (по лимиту FPS)
         updateUI(true);
-
-        // в другое окно — реже и только progress
         maybeSendProgress();
     } else {
         smoothSpeed += (0 - smoothSpeed) * 0.08;
@@ -458,7 +450,6 @@ if (!isPrompter) {
         };
     });
 
-    // PERF button: cycles modes
     perfBtn.onclick = () => {
         state.perfMode = (state.perfMode + 1) % 3;
         applyPerfMode(true);
@@ -498,7 +489,7 @@ if (!isPrompter) {
 
     startBtn.onclick = () => {
         state.scrolling = !state.scrolling;
-        syncFull();          // старт/пауза — полный sync
+        syncFull();
         updateUI();
         saveStateDebounced();
         clearFocus();
@@ -554,7 +545,6 @@ if (!isPrompter) {
                 saveGeom();
             }, 500);
 
-            // попросим prompter запросить SYNC, чтобы он точно стартанул с актуальным state
             channel.postMessage({ type: 'REQ' });
         }
 
@@ -563,7 +553,6 @@ if (!isPrompter) {
     };
 } else {
     document.getElementById('controls').style.display = 'none';
-    // prompter окно: применяем режим по полученному SYNC
     applyPerfMode(false);
     channel.postMessage({ type: 'REQ' });
 }
