@@ -48,12 +48,17 @@
     #openWindowBtn.active { background: var(--accent) !important; box-shadow: 0 0 15px rgba(0,123,255,0.4); }
 
     .view-container { position:relative; width:100%; height:100vh; display:flex; justify-content:center; overflow:hidden; }
+
+    /* ВАЖНО: убрали optimizeLegibility (может лагать на интеграшках при большом тексте) */
     #text-display { 
         position:absolute; text-align:center; line-height:1.5; 
         white-space:pre-wrap; word-wrap:break-word; top:0; 
         will-change: transform; transform: translate3d(0,0,0);
-        backface-visibility:hidden; text-rendering: optimizeLegibility; -webkit-font-smoothing: antialiased;
+        backface-visibility:hidden; text-rendering: auto; -webkit-font-smoothing: antialiased;
     }
+
+    /* Чтобы зеркало не меняло строку transform каждый кадр — делаем классом */
+    #text-display.mirrored { transform: scaleX(-1); } /* будет комбинироваться через wrapper ниже */
 
     .modal-overlay { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0, 0, 0, 0.85); backdrop-filter: blur(12px); z-index: 2000; justify-content: center; align-items: center; }
     .modal-card { background: #1e1e20; width: 480px; height: 580px; border-radius: 28px; border: 1px solid #333; overflow: hidden; display: flex; flex-direction: column; box-shadow: 0 30px 60px rgba(0,0,0,0.6); }
@@ -103,6 +108,16 @@
         border-bottom: 6px solid transparent;
         border-left: 10px solid var(--danger);
     }
+
+    /* Wrapper для отдельного зеркалирования без пересборки transform-строки */
+    #mirror-wrap {
+        position:absolute;
+        top:0; left:0; right:0; bottom:0;
+        display:flex;
+        justify-content:center;
+        pointer-events:none;
+    }
+    #mirror-wrap.mirror { transform: scaleX(-1); }
 </style>
 </head>
 <body>
@@ -168,7 +183,11 @@
     </div>
 </div>
 
-<div class="view-container"><div id="text-display"></div></div>
+<div class="view-container">
+    <div id="mirror-wrap">
+        <div id="text-display"></div>
+    </div>
+</div>
 
 <script>
 const channel = new BroadcastChannel('tele_v24_broadcast');
@@ -176,6 +195,7 @@ const params = new URLSearchParams(window.location.search);
 const isPrompter = params.get('mode') === 'prompter';
 
 const textDisplay = document.getElementById('text-display');
+const mirrorWrap = document.getElementById('mirror-wrap');
 const inputArea = document.getElementById('input');
 const speedSlider = document.getElementById('speedSlider');
 const fontSlider = document.getElementById('fontSlider');
@@ -188,11 +208,37 @@ const readingMarker = document.getElementById('readingMarker');
 
 let prompterWindow = null;
 let lastTime = performance.now();
-let smoothSpeed = 0; 
+let smoothSpeed = 0;
 let needRecalc = true;
 const cache = { text: '', fontSize: 0, width: 0 };
+let distance = 0;
 
-const saved = JSON.parse(localStorage.getItem('tele_v24_settings')) || {};
+// ---- Save (debounced) ----
+const STORAGE_KEY = 'tele_v24_settings';
+let saveTimer = null;
+function saveStateDebounced() {
+    if (isPrompter) return;
+    clearTimeout(saveTimer);
+    saveTimer = setTimeout(() => {
+        try {
+            localStorage.setItem(STORAGE_KEY, JSON.stringify({
+                text: state.text,
+                speed: state.speed,
+                fontSize: state.fontSize,
+                width: state.width,
+                mirror: state.mirror,
+                winX: state.winX, winY: state.winY, winW: state.winW, winH: state.winH,
+                markerEnabled: state.markerEnabled
+            }));
+        } catch(_) {}
+    }, 350);
+}
+
+const saved = (() => {
+    try { return JSON.parse(localStorage.getItem(STORAGE_KEY)) || {}; }
+    catch { return {}; }
+})();
+
 let state = {
     text: saved.text || "Введите ваш текст здесь...",
     speed: saved.speed || 5,
@@ -208,49 +254,77 @@ let state = {
     markerEnabled: saved.markerEnabled || false
 };
 
-function sync() { channel.postMessage({ type: 'SYNC', data: state }); }
+// ---- Sync logic ----
+function syncFull() { channel.postMessage({ type: 'SYNC', data: state }); }
+function sendProgress(progress) { channel.postMessage({ type: 'PROGRESS', progress }); }
 function clearFocus() { if (document.activeElement) document.activeElement.blur(); }
 
 channel.onmessage = (e) => {
-    if (e.data.type === 'SYNC') { state = e.data.data; updateUI(); }
-    if (e.data.type === 'REQ' && !isPrompter) sync();
+    const msg = e.data || {};
+    if (msg.type === 'SYNC') { state = msg.data; needRecalc = true; updateUI(); }
+    if (msg.type === 'PROGRESS') { state.progress = msg.progress; updateUI(true); }
+    if (msg.type === 'REQ' && !isPrompter) syncFull();
 };
 
-function updateUI() {
-    if(cache.text !== state.text) { textDisplay.innerText = state.text; cache.text = state.text; needRecalc = true; }
-    if(cache.fontSize !== state.fontSize) { textDisplay.style.fontSize = state.fontSize + 'px'; cache.fontSize = state.fontSize; needRecalc = true; }
-    if(cache.width !== state.width) { textDisplay.style.width = state.width + '%'; cache.width = state.width; needRecalc = true; }
+// ---- Layout recalculation ----
+function recalcDistance() {
+    distance = textDisplay.scrollHeight + window.innerHeight;
+    needRecalc = false;
+}
 
-    const distance = textDisplay.scrollHeight + window.innerHeight;
+window.addEventListener('resize', () => { needRecalc = true; });
+
+// ---- UI render ----
+// fastOnly: не трогаем контролы/локалсторедж — только позицию и маркер
+function updateUI(fastOnly = false) {
+    if (cache.text !== state.text) { textDisplay.innerText = state.text; cache.text = state.text; needRecalc = true; }
+    if (cache.fontSize !== state.fontSize) { textDisplay.style.fontSize = state.fontSize + 'px'; cache.fontSize = state.fontSize; needRecalc = true; }
+    if (cache.width !== state.width) { textDisplay.style.width = state.width + '%'; cache.width = state.width; needRecalc = true; }
+
+    if (needRecalc) recalcDistance();
+
     const currentY = window.innerHeight - (state.progress * distance);
-    
-    let transform = `translate3d(0, ${currentY}px, 0)`;
-    if (state.mirror && isPrompter) transform += ` scaleX(-1)`;
-    textDisplay.style.transform = transform;
+    textDisplay.style.transform = `translate3d(0, ${currentY}px, 0)`;
 
     if (readingMarker) {
         readingMarker.style.display = state.markerEnabled ? 'block' : 'none';
     }
 
+    // зеркалим только в prompter-окне
+    if (isPrompter) {
+        mirrorWrap.classList.toggle('mirror', !!state.mirror);
+    }
+
+    if (fastOnly) return;
+
     if (!isPrompter) {
         document.getElementById('speedVal').innerText = state.speed;
         document.getElementById('fontVal').innerText = state.fontSize;
         document.getElementById('widthVal').innerText = state.width + '%';
+
         startBtn.innerText = state.scrolling ? "ПАУЗА" : "СТАРТ";
         startBtn.classList.toggle('active', state.scrolling);
         mirrorBtn.classList.toggle('active', state.mirror);
         if (markerBtn) markerBtn.classList.toggle('active', state.markerEnabled);
-        
+
         inputArea.disabled = state.scrolling;
         fontSlider.disabled = state.scrolling;
         widthSlider.disabled = state.scrolling;
         mirrorBtn.disabled = state.scrolling;
-        openWindowBtn.disabled = state.scrolling; 
-        
+        openWindowBtn.disabled = state.scrolling;
+
         openWindowBtn.classList.toggle('active', prompterWindow && !prompterWindow.closed);
-        
-        localStorage.setItem('tele_v24_settings', JSON.stringify(state));
     }
+}
+
+// ---- Animation ----
+let lastProgressSent = 0;
+function maybeSendProgress() {
+    // 30fps достаточно, чтобы окно диктора шло плавно
+    const now = performance.now();
+    if (now - lastProgressSent < 33) return;
+    lastProgressSent = now;
+    sendProgress(state.progress);
 }
 
 function animate(currentTime) {
@@ -259,13 +333,18 @@ function animate(currentTime) {
 
     if (state.scrolling) {
         smoothSpeed += (state.speed - smoothSpeed) * 0.08;
-        state.progress += (smoothSpeed * deltaTime) * 0.000008; 
-        
+        state.progress += (smoothSpeed * deltaTime) * 0.000008;
         if (state.progress > 1) state.progress = 0;
-        sync(); updateUI();
+
+        // локально рисуем каждый кадр (это дешево)
+        updateUI(true);
+
+        // в другое окно — реже и только progress
+        maybeSendProgress();
     } else {
         smoothSpeed += (0 - smoothSpeed) * 0.08;
     }
+
     requestAnimationFrame(animate);
 }
 
@@ -273,29 +352,40 @@ window.onunload = () => {
     if (prompterWindow) prompterWindow.close();
 };
 
+// ---- Controller window only ----
 if (!isPrompter) {
     inputArea.value = state.text;
     speedSlider.value = state.speed;
     fontSlider.value = state.fontSize;
     widthSlider.value = state.width;
-    
+
     document.getElementById('aboutBtn').onclick = () => { document.getElementById('aboutModal').style.display = 'flex'; clearFocus(); }
     document.getElementById('closeAboutBtn').onclick = () => { document.getElementById('aboutModal').style.display = 'none'; clearFocus(); }
 
-    inputArea.oninput = () => { state.text = inputArea.value; sync(); updateUI(); };
+    inputArea.oninput = () => {
+        state.text = inputArea.value;
+        syncFull();
+        updateUI();
+        saveStateDebounced();
+    };
+
     [speedSlider, fontSlider, widthSlider].forEach(sl => {
         sl.oninput = () => {
-            if(sl.disabled) return;
-            state.speed = parseInt(speedSlider.value); 
-            state.fontSize = parseInt(fontSlider.value); 
-            state.width = parseInt(widthSlider.value); 
-            sync(); updateUI(); 
+            if (sl.disabled) return;
+            state.speed = parseInt(speedSlider.value);
+            state.fontSize = parseInt(fontSlider.value);
+            state.width = parseInt(widthSlider.value);
+            syncFull();
+            updateUI();
+            saveStateDebounced();
         };
     });
 
     document.addEventListener('keydown', (e) => {
         if (document.activeElement === inputArea) return;
+
         if (e.code === 'Space') { e.preventDefault(); startBtn.click(); }
+
         if (e.code === 'ArrowUp') { state.speed = Math.min(state.speed + 1, 40); speedSlider.value = state.speed; }
         if (e.code === 'ArrowDown') { state.speed = Math.max(state.speed - 1, 0); speedSlider.value = state.speed; }
         if (e.code === 'Home') { e.preventDefault(); state.progress = 0; }
@@ -306,51 +396,68 @@ if (!isPrompter) {
             if (e.code === 'PageUp') { e.preventDefault(); state.width = Math.min(state.width + 5, 100); widthSlider.value = state.width; }
             if (e.code === 'PageDown') { e.preventDefault(); state.width = Math.max(state.width - 5, 20); widthSlider.value = state.width; }
         }
-        sync(); updateUI();
+
+        syncFull();
+        updateUI();
+        saveStateDebounced();
     });
 
     window.addEventListener('wheel', (e) => {
         if (state.scrolling) return;
         state.progress = Math.max(0, Math.min(1, state.progress + e.deltaY * 0.0005));
-        sync(); updateUI();
+        syncFull();
+        updateUI();
+        saveStateDebounced();
     }, { passive: true });
 
-    startBtn.onclick = () => { state.scrolling = !state.scrolling; sync(); updateUI(); clearFocus(); };
-    
-    mirrorBtn.onclick = () => { 
-        if (state.scrolling) return; 
-        state.mirror = !state.mirror; 
-        sync(); updateUI(); 
-        clearFocus(); 
-    };
-    
-    markerBtn.onclick = () => {
-        state.markerEnabled = !state.markerEnabled;
-        sync();
+    startBtn.onclick = () => {
+        state.scrolling = !state.scrolling;
+        syncFull();          // старт/пауза — полный sync
         updateUI();
+        saveStateDebounced();
         clearFocus();
     };
-    
+
+    mirrorBtn.onclick = () => {
+        if (state.scrolling) return;
+        state.mirror = !state.mirror;
+        syncFull();
+        updateUI();
+        saveStateDebounced();
+        clearFocus();
+    };
+
+    markerBtn.onclick = () => {
+        state.markerEnabled = !state.markerEnabled;
+        syncFull();
+        updateUI();
+        saveStateDebounced();
+        clearFocus();
+    };
+
     openWindowBtn.onclick = () => {
         if (state.scrolling) return;
-        if (prompterWindow && !prompterWindow.closed) { 
-            prompterWindow.close(); 
-            prompterWindow = null; 
-        } else { 
+
+        if (prompterWindow && !prompterWindow.closed) {
+            prompterWindow.close();
+            prompterWindow = null;
+        } else {
             const features = `width=${state.winW},height=${state.winH},left=${state.winX},top=${state.winY},menubar=no,toolbar=no,location=no,status=no`;
-            prompterWindow = window.open(window.location.href.split('?')[0] + '?mode=prompter', 'Prompter', features); 
-            
+            prompterWindow = window.open(window.location.href.split('?')[0] + '?mode=prompter', 'Prompter', features);
+
             const saveGeom = () => {
                 if (!prompterWindow || prompterWindow.closed) return;
                 state.winX = prompterWindow.screenX;
                 state.winY = prompterWindow.screenY;
                 state.winW = prompterWindow.outerWidth;
                 state.winH = prompterWindow.outerHeight;
-                localStorage.setItem('tele_v24_settings', JSON.stringify(state));
+                saveStateDebounced();
             };
 
-            prompterWindow.addEventListener('beforeunload', saveGeom);
-            prompterWindow.addEventListener('resize', saveGeom);
+            try {
+                prompterWindow.addEventListener('beforeunload', saveGeom);
+                prompterWindow.addEventListener('resize', saveGeom);
+            } catch(_) {}
 
             const saveInterval = setInterval(() => {
                 if (!prompterWindow || prompterWindow.closed) {
@@ -360,8 +467,13 @@ if (!isPrompter) {
                 }
                 saveGeom();
             }, 500);
+
+            // попросим prompter запросить SYNC, чтобы он точно стартанул с актуальным state
+            channel.postMessage({ type: 'REQ' });
         }
-        updateUI(); clearFocus();
+
+        updateUI();
+        clearFocus();
     };
 } else {
     document.getElementById('controls').style.display = 'none';
