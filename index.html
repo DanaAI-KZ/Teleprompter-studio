@@ -90,7 +90,8 @@
     .tab-content { padding: 35px 40px; display: none; flex-direction: column; align-items: center; flex-grow: 1; overflow: hidden; box-sizing: border-box; }
     .tab-content.active { display: flex; }
 
-    .program-title { font-size: 24px; font-weight: 900; color: #fff; margin-bottom: 15px; text-transform: uppercase; letter-spacing: 1px; }
+    .program-title { font-size: 24px; font-weight: 900; color: #fff; margin-bottom: 8px; text-transform: uppercase; letter-spacing: 1px; }
+    .program-version { font-size: 12px; color: var(--stat-color); font-family: monospace; font-weight: 700; margin-bottom: 14px; letter-spacing: 0.5px; }
     .program-desc { font-size: 15px; line-height: 1.5; color: #ddd; margin-bottom: 25px; text-align: center; }
     
     .help-grid { display: flex; flex-direction: column; gap: 10px; width: 100%; margin-bottom: 25px; }
@@ -99,7 +100,7 @@
 
     .logo-img { width: 180px; height: 180px; margin-bottom: 15px; filter: drop-shadow(0 0 25px rgba(0,123,255,0.25)); object-fit: contain; }
     .author-name { font-size: 22px; font-weight: 600; color: #fff; margin-bottom: 4px; }
-    .ceo-label { font-size: 14px; color: var(--accent); font-weight: 700; margin-bottom: 25px; }
+    .ceo-label { font-size: 14px; color: var(--accent); font-weight: 700; margin-bottom: 12px; }
     .connect-link { color: #ccc; text-decoration: none; font-size: 14px; transition: 0.3s; font-weight: 500; display: block; margin-bottom: 8px; }
     .connect-link:hover { color: var(--accent); }
 
@@ -165,6 +166,7 @@
         
         <div id="tab-help" class="tab-content active">
             <div class="program-title">Teleprompter Studio</div>
+            <div class="program-version" id="versionInfoA">v?.?.?</div>
             <div class="program-desc">
                 Современный веб-суфлер с поддержкой двухэкранного режима. 
                 Зеркальный режим гарантирует совместимость с профессиональным оборудованием.
@@ -185,6 +187,7 @@
             <div style="font-size: 11px; color: #888; text-transform: uppercase; letter-spacing: 2px; margin-bottom: 5px;">Created by</div>
             <div class="author-name">Nurlan Akkainanov</div>
             <div class="ceo-label">CEO, Dana Systems</div>
+            <div class="program-version" id="versionInfoB">v?.?.?</div>
             <div class="connect-section" style="text-align: center;">
                 <a href="https://t.me/NurlanDS" target="_blank" class="connect-link">Telegram: @NurlanDS</a>
                 <a href="https://www.dana-systems.com" target="_blank" class="connect-link">Web: www.dana-systems.com</a>
@@ -202,6 +205,13 @@
 </div>
 
 <script>
+// =================== VERSION ===================
+const APP_VERSION = "v1.0.8"; // <-- меняй тут
+try {
+  document.title = `Teleprompter Studio ${APP_VERSION}`;
+} catch(_) {}
+// ==============================================
+
 const channel = new BroadcastChannel('tele_v24_broadcast');
 const params = new URLSearchParams(window.location.search);
 const isPrompter = params.get('mode') === 'prompter';
@@ -219,6 +229,11 @@ const markerBtn = document.getElementById('markerBtn');
 const perfBtn = document.getElementById('perfBtn');
 const readingMarker = document.getElementById('readingMarker');
 
+const versionInfoA = document.getElementById('versionInfoA');
+const versionInfoB = document.getElementById('versionInfoB');
+if (versionInfoA) versionInfoA.innerText = APP_VERSION;
+if (versionInfoB) versionInfoB.innerText = APP_VERSION;
+
 let prompterWindow = null;
 let lastTime = performance.now();
 let smoothSpeed = 0;
@@ -226,13 +241,18 @@ let needRecalc = true;
 const cache = { text: '', fontSize: 0, width: 0 };
 let distance = 0;
 
+// ======= NEW: prompter smoothing (interpolation) =======
+let targetProgress = 0;
+let displayProgress = 0;
+// =======================================================
+
 // PERF runtime config
 const perf = {
   mode: 0,                 // 0 quality, 1 balanced, 2 performance
   targetFps: 60,
   frameMs: 1000 / 60,
   lastFrame: 0,
-  progressIntervalMs: 16   // FIX: default for QUALITY should be smooth (60fps)
+  progressIntervalMs: 16   // QUALITY smooth by default (60fps IPC)
 };
 
 // ---- Save (debounced) ----
@@ -278,6 +298,10 @@ let state = {
     perfMode: (typeof saved.perfMode === 'number') ? saved.perfMode : 0
 };
 
+// init smoothing vars from state
+targetProgress = state.progress;
+displayProgress = state.progress;
+
 // ---- Sync logic ----
 function syncFull() { channel.postMessage({ type: 'SYNC', data: state }); }
 function sendProgress(progress) { channel.postMessage({ type: 'PROGRESS', progress }); }
@@ -285,8 +309,26 @@ function clearFocus() { if (document.activeElement) document.activeElement.blur(
 
 channel.onmessage = (e) => {
     const msg = e.data || {};
-    if (msg.type === 'SYNC') { state = msg.data; needRecalc = true; applyPerfMode(false); updateUI(); }
-    if (msg.type === 'PROGRESS') { state.progress = msg.progress; updateUI(true); }
+
+    if (msg.type === 'SYNC') {
+        state = msg.data;
+        needRecalc = true;
+        applyPerfMode(false);
+
+        // NEW: reset interpolation baseline to avoid jump
+        targetProgress = state.progress;
+        displayProgress = state.progress;
+
+        updateUI();
+    }
+
+    if (msg.type === 'PROGRESS') {
+        // NEW: don't assign state.progress directly -> prevents stepping in prompter
+        targetProgress = msg.progress;
+        // update only fast (position), controller will still render its own smoothness
+        if (isPrompter) updateUI(true);
+    }
+
     if (msg.type === 'REQ' && !isPrompter) syncFull();
 };
 
@@ -295,7 +337,6 @@ function recalcDistance() {
     distance = textDisplay.scrollHeight + window.innerHeight;
     needRecalc = false;
 }
-
 window.addEventListener('resize', () => { needRecalc = true; });
 
 // ---- PERF helpers ----
@@ -307,10 +348,10 @@ function applyPerfMode(shouldSync = true) {
   state.perfMode = (state.perfMode === 0 || state.perfMode === 1 || state.perfMode === 2) ? state.perfMode : 0;
   perf.mode = state.perfMode;
 
-  // FIX: QUALITY and BALANCED must be visually smooth (more frequent PROGRESS)
+  // smooth defaults: QUALITY/BALANCED -> frequent progress
   if (perf.mode === 0) { // QUALITY
     perf.targetFps = 60;
-    perf.progressIntervalMs = 16;  // ~60fps IPC (smooth)
+    perf.progressIntervalMs = 16;  // ~60fps IPC
     document.body.classList.remove('perf');
   } else if (perf.mode === 1) { // BALANCED
     perf.targetFps = 45;
@@ -346,7 +387,9 @@ function updateUI(fastOnly = false) {
 
     if (needRecalc) recalcDistance();
 
-    const currentY = window.innerHeight - (state.progress * distance);
+    // NEW: render uses displayProgress (smoothed), fallback to state.progress
+    const p = (typeof displayProgress === 'number') ? displayProgress : state.progress;
+    const currentY = window.innerHeight - (p * distance);
     textDisplay.style.transform = `translate3d(0, ${currentY}px, 0)`;
 
     if (readingMarker) {
@@ -390,9 +433,8 @@ function maybeSendProgress() {
 
 // ---- Animation ----
 function animate(currentTime) {
-    // FIX: FPS limiter must apply ONLY in PERF mode (mode 2),
-    // otherwise powerful PCs will see step-like motion.
-    if (perf.mode === 2) {
+    // FIX: FPS limiter should apply ONLY in PERF mode AND only for prompter window
+    if (perf.mode === 2 && isPrompter) {
         if (currentTime - perf.lastFrame < perf.frameMs) {
             requestAnimationFrame(animate);
             return;
@@ -408,10 +450,23 @@ function animate(currentTime) {
         state.progress += (smoothSpeed * deltaTime) * 0.000008;
         if (state.progress > 1) state.progress = 0;
 
+        // NEW: interpolation for prompter smoothness
+        // Controller follows itself; Prompter follows targetProgress from IPC.
+        if (!isPrompter) targetProgress = state.progress;
+
+        const alpha = (perf.mode === 0) ? 0.35 : (perf.mode === 1) ? 0.30 : 0.22;
+        displayProgress += (targetProgress - displayProgress) * alpha;
+
         updateUI(true);
         maybeSendProgress();
     } else {
         smoothSpeed += (0 - smoothSpeed) * 0.08;
+
+        // keep displayProgress stable when paused
+        if (!isPrompter) {
+            targetProgress = state.progress;
+            displayProgress = state.progress;
+        }
     }
 
     requestAnimationFrame(animate);
@@ -554,6 +609,11 @@ if (!isPrompter) {
 } else {
     document.getElementById('controls').style.display = 'none';
     applyPerfMode(false);
+
+    // ensure smoothing starts from current state after first SYNC
+    targetProgress = state.progress;
+    displayProgress = state.progress;
+
     channel.postMessage({ type: 'REQ' });
 }
 
